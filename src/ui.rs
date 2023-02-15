@@ -100,7 +100,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, f1: &FileWatcher, f2: &FileWatcher) {
     f.render_widget(block, chunks[0]);
 
     let block = Paragraph::new(text2)
-        .block(Block::default().title("File 1").borders(Borders::ALL))
+        .block(Block::default().title("File 2").borders(Borders::ALL))
         .style(Style::default().fg(Color::White).bg(Color::Black))
         .wrap(Wrap { trim: true });
     f.render_widget(block, chunks[1]);
