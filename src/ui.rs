@@ -7,7 +7,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use futures::StreamExt;
-use tokio::select;
+use tokio::{select, sync::MutexGuard};
 use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout},
@@ -45,10 +45,9 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> anyho
     'mainloop: loop {
         // render
         {
-            let f1 = app.watchers[0].lock().await;
-            let f2 = app.watchers[1].lock().await;
+            let tails = futures::future::join_all(app.watchers.iter().map(move |w| w.lock())).await;
 
-            terminal.draw(|f| ui(f, &f1, &f2))?;
+            terminal.draw(|f| ui(f, &tails))?;
         }
 
         // wait for events
@@ -74,32 +73,22 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> anyho
     Ok(())
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>, f1: &FileWatcher, f2: &FileWatcher) {
+fn ui<B: Backend>(f: &mut Frame<B>, tails: &[MutexGuard<'_, FileWatcher>]) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
         .split(f.size());
 
-    // parse current view into a block
-    let text1: Vec<_> = f1
-        .iter_tail(chunks[0].height as usize - 2)
-        .map(|l| Spans::from(vec![Span::raw(l)]))
-        .collect();
+    for (i, tail) in tails.iter().enumerate() {
+        let text: Vec<_> = tail
+            .iter_tail(chunks[0].height as usize - 2)
+            .map(|l| Spans::from(vec![Span::raw(l)]))
+            .collect();
 
-    let text2: Vec<_> = f2
-        .iter_tail(chunks[0].height as usize - 2)
-        .map(|l| Spans::from(vec![Span::raw(l)]))
-        .collect();
-
-    let block = Paragraph::new(text1)
-        .block(Block::default().title("File 1").borders(Borders::ALL))
-        .style(Style::default().fg(Color::White).bg(Color::Black))
-        .wrap(Wrap { trim: true });
-    f.render_widget(block, chunks[0]);
-
-    let block = Paragraph::new(text2)
-        .block(Block::default().title("File 2").borders(Borders::ALL))
-        .style(Style::default().fg(Color::White).bg(Color::Black))
-        .wrap(Wrap { trim: true });
-    f.render_widget(block, chunks[1]);
+        let block = Paragraph::new(text)
+            .block(Block::default().title("File 1").borders(Borders::ALL))
+            .style(Style::default().fg(Color::White).bg(Color::Black))
+            .wrap(Wrap { trim: true });
+        f.render_widget(block, chunks[i]);
+    }
 }
