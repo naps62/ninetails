@@ -1,14 +1,13 @@
 use std::{
-    collections::VecDeque,
     io::{BufRead, BufReader},
-    iter,
     path::Path,
-    slice::Iter,
-    sync::{Arc, Mutex},
-    thread,
+    sync::Arc,
 };
 
-use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedReceiver};
+use tokio::sync::{
+    mpsc::{self, Sender},
+    Mutex,
+};
 
 use notify::{recommended_watcher, Event, EventKind, RecommendedWatcher, Watcher};
 
@@ -36,12 +35,10 @@ impl FileWatcher {
     }
 }
 
-pub fn listen(
+pub async fn listen(
     obj: &Arc<Mutex<FileWatcher>>,
-) -> anyhow::Result<(RecommendedWatcher, UnboundedReceiver<()>)> {
-    // channel for notifying a consumer that updates happened
-    let (outer_tx, outer_rx) = mpsc::unbounded_channel();
-
+    outer_tx: Sender<()>,
+) -> anyhow::Result<RecommendedWatcher> {
     // channel for internal comms between the new thread and the file watcher
     let (inner_tx, mut inner_rx) = mpsc::unbounded_channel();
 
@@ -56,7 +53,11 @@ pub fn listen(
         Err(e) => println!("error: {:?}", e),
     })?;
 
-    watcher.watch(Path::new("test.log"), notify::RecursiveMode::NonRecursive)?;
+    // start watching
+    watcher.watch(
+        Path::new(&obj.lock().await.path),
+        notify::RecursiveMode::NonRecursive,
+    )?;
 
     let copy = obj.clone();
     tokio::task::spawn(async move {
@@ -64,7 +65,7 @@ pub fn listen(
             match inner_rx.recv().await {
                 // file was modified
                 Some(_) => {
-                    let mut watcher = copy.lock().unwrap();
+                    let mut watcher = copy.lock().await;
                     let f = std::fs::File::open(&watcher.path).unwrap();
                     let reader = BufReader::new(f);
 
@@ -75,12 +76,12 @@ pub fn listen(
                     }
 
                     // ping the outer channel to trigger a re-render
-                    outer_tx.send(()).unwrap();
+                    outer_tx.send(()).await.unwrap();
                 }
                 _ => {}
             }
         }
     });
 
-    Ok((watcher, outer_rx))
+    Ok(watcher)
 }

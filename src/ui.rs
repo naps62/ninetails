@@ -1,21 +1,13 @@
-use crate::{
-    args::Args,
-    file_watcher::{self, FileWatcher},
-};
-use std::{
-    io,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use crate::{app::App, args::Args, file_watcher::FileWatcher};
+use std::io;
 
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use futures::{future::FutureExt, StreamExt};
-use futures_timer::Delay;
-use tokio::{select, time::sleep};
+use futures::StreamExt;
+use tokio::select;
 use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout},
@@ -25,7 +17,7 @@ use tui::{
     Frame, Terminal,
 };
 
-pub async fn run(args: Args) -> anyhow::Result<()> {
+pub async fn run(mut app: App) -> anyhow::Result<()> {
     //
     // setup
     //
@@ -35,7 +27,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    run_app(&mut terminal).await?;
+    run_app(&mut terminal, &mut app).await?;
 
     //
     // teardown
@@ -51,16 +43,18 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run_app<B: Backend>(terminal: &mut Terminal<B>) -> anyhow::Result<()> {
-    let watcher = FileWatcher::new("test.log")?;
-    let (_handle, mut updates) = file_watcher::listen(&watcher)?;
+async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> anyhow::Result<()> {
     let mut term_events = EventStream::new();
 
     'mainloop: loop {
-        terminal.draw(|f| ui(f, &watcher))?;
+        {
+            let f1 = app.watchers[0].lock().await;
+            let f2 = app.watchers[1].lock().await;
+            terminal.draw(|f| ui(f, &f1, &f2))?;
+        }
 
         select! {
-            Some(_) = updates.recv() =>{
+            () = app.wait() =>{
                 /* update was triggered. looping */
             }
             maybe_event = term_events.next() => {
@@ -82,25 +76,32 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>, watcher: &Arc<Mutex<FileWatcher>>) {
+fn ui<B: Backend>(f: &mut Frame<B>, f1: &FileWatcher, f2: &FileWatcher) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
         .split(f.size());
 
     // parse current view into a block
-    let guard = watcher.lock().unwrap();
-    let text: Vec<_> = guard
+    let text1: Vec<_> = f1
         .iter_tail(chunks[0].height as usize - 2)
         .map(|l| Spans::from(vec![Span::raw(l)]))
         .collect();
 
-    let block = Paragraph::new(text)
+    let text2: Vec<_> = f2
+        .iter_tail(chunks[0].height as usize - 2)
+        .map(|l| Spans::from(vec![Span::raw(l)]))
+        .collect();
+
+    let block = Paragraph::new(text1)
         .block(Block::default().title("File 1").borders(Borders::ALL))
         .style(Style::default().fg(Color::White).bg(Color::Black))
         .wrap(Wrap { trim: true });
     f.render_widget(block, chunks[0]);
 
-    let block = Block::default().title("Block #2").borders(Borders::ALL);
+    let block = Paragraph::new(text2)
+        .block(Block::default().title("File 1").borders(Borders::ALL))
+        .style(Style::default().fg(Color::White).bg(Color::Black))
+        .wrap(Wrap { trim: true });
     f.render_widget(block, chunks[1]);
 }
