@@ -9,6 +9,7 @@ use crate::{
 };
 
 pub struct App {
+    pub tab: usize,
     pub receiver: Receiver<()>,
     pub watch_handles: Vec<INotifyWatcher>,
     pub watchers: Vec<Arc<Mutex<FileWatcher>>>,
@@ -29,6 +30,7 @@ impl App {
         }
 
         Ok(Self {
+            tab: 0,
             watch_handles,
             watchers,
             receiver: rx,
@@ -37,5 +39,15 @@ impl App {
 
     pub async fn wait(&mut self) {
         self.receiver.recv().await;
+    }
+
+    pub fn move_to_tab(&mut self, n: usize) {
+        if n == 0 {
+            self.tab = 0;
+        } else if n > self.watchers.len() + 1 {
+            self.tab = 0;
+        } else {
+            self.tab = n - 1;
+        }
     }
 }
