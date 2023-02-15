@@ -1,10 +1,13 @@
 mod args;
+mod circular;
+mod file_watcher;
 mod ui;
 
-fn main() -> Result<(), std::io::Error> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let args = args::parse();
 
-    ui::run(args)?;
+    ui::run(args).await?;
 
     Ok(())
 }

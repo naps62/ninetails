@@ -1,15 +1,21 @@
-use crate::args::Args;
-use notify::recommended_watcher;
-use notify::Watcher;
-use std::io;
-use std::io::BufRead;
-use std::sync::mpsc;
+use crate::{
+    args::Args,
+    file_watcher::{self, FileWatcher},
+};
+use std::{
+    io,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use futures::{future::FutureExt, StreamExt};
+use futures_timer::Delay;
+use tokio::{select, time::sleep};
 use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout},
@@ -19,9 +25,7 @@ use tui::{
     Frame, Terminal,
 };
 
-pub fn run(args: Args) -> Result<(), io::Error> {
-    println!("{:?}", args);
-
+pub async fn run(args: Args) -> anyhow::Result<()> {
     //
     // setup
     //
@@ -31,7 +35,7 @@ pub fn run(args: Args) -> Result<(), io::Error> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    run_app(&mut terminal)?;
+    run_app(&mut terminal).await?;
 
     //
     // teardown
@@ -47,61 +51,52 @@ pub fn run(args: Args) -> Result<(), io::Error> {
     Ok(())
 }
 
-fn run_app<B: Backend>(terminal: &mut Terminal<B>) -> io::Result<()> {
-    let path = "test.log";
-    let (tx, rx) = mpsc::channel();
-    let mut watcher = recommended_watcher(tx).unwrap();
-    watcher
-        .watch(
-            std::path::Path::new(path),
-            notify::RecursiveMode::NonRecursive,
-        )
-        .unwrap();
+async fn run_app<B: Backend>(terminal: &mut Terminal<B>) -> anyhow::Result<()> {
+    let watcher = FileWatcher::new("test.log")?;
+    let (_handle, mut updates) = file_watcher::listen(&watcher)?;
+    let mut term_events = EventStream::new();
 
-    let mut contents: Vec<String> = vec![];
+    'mainloop: loop {
+        terminal.draw(|f| ui(f, &watcher))?;
 
-    loop {
-        terminal.draw(|f| ui(f, &contents))?;
-
-        if let Event::Key(key) = event::read()? {
-            if let KeyCode::Char('q') = key.code {
-                return Ok(());
+        select! {
+            Some(_) = updates.recv() =>{
+                /* update was triggered. looping */
             }
-        }
+            maybe_event = term_events.next() => {
+                match maybe_event {
+                    Some(Ok(event))=>{
 
-        // TODO: this needs to be threaded
-        match rx.recv() {
-            Ok(_) => {
-                let f = std::fs::File::open(&path).unwrap();
-                let reader = rev_buf_reader::RevBufReader::new(f);
-                contents.clear();
-
-                contents.clear();
-                // TODO: this needs to be the size of the window
-                contents = reader.lines().take(5).map(|l| l.unwrap()).collect();
-            }
-
-            Err(err) => {
-                eprintln!("Error: {:?}", err);
-                std::process::exit(1);
+                        // q pressed, quit
+                        if event== Event::Key(KeyCode::Char('q').into()){
+                            break 'mainloop;
+                        }
+                    }
+                    Some(Err(e))=>{println!("Error: {:?}", e)},
+                    None=>break
+                }
             }
         }
     }
+
+    Ok(())
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>, contents: &[String]) {
+fn ui<B: Backend>(f: &mut Frame<B>, watcher: &Arc<Mutex<FileWatcher>>) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
         .split(f.size());
 
-    let text: Vec<_> = contents
-        .iter()
-        .rev()
+    // parse current view into a block
+    let guard = watcher.lock().unwrap();
+    let text: Vec<_> = guard
+        .iter_tail(chunks[0].height as usize - 2)
         .map(|l| Spans::from(vec![Span::raw(l)]))
         .collect();
+
     let block = Paragraph::new(text)
-        .block(Block::default().title("Paragraph").borders(Borders::ALL))
+        .block(Block::default().title("File 1").borders(Borders::ALL))
         .style(Style::default().fg(Color::White).bg(Color::Black))
         .wrap(Wrap { trim: true });
     f.render_widget(block, chunks[0]);
