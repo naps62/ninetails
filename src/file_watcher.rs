@@ -16,7 +16,6 @@ use crate::circular::CircularBuffer;
 pub struct FileWatcher {
     path: String,
     pub history: CircularBuffer<String>,
-    following: bool,
 }
 
 impl FileWatcher {
@@ -24,7 +23,6 @@ impl FileWatcher {
         Ok(Arc::new(Mutex::new(Self {
             path: file.into(),
             history: CircularBuffer::new(10000),
-            following: true,
         })))
     }
 
@@ -42,24 +40,8 @@ pub async fn listen(
     // channel for internal comms between the new thread and the file watcher
     let (inner_tx, mut inner_rx) = mpsc::unbounded_channel();
 
-    let mut watcher = recommended_watcher(move |res| match res {
-        // only notify for Modify events
-        Ok(Event {
-            kind: EventKind::Modify(..),
-            ..
-        }) => inner_tx.send(()).unwrap(),
-        Ok(_) => {}
-
-        Err(e) => println!("error: {:?}", e),
-    })?;
-
-    // start watching
-    watcher.watch(
-        Path::new(&obj.lock().await.path),
-        notify::RecursiveMode::NonRecursive,
-    )?;
-
     let copy = obj.clone();
+    // setup a task to listen to file changes and read new lines
     tokio::task::spawn(async move {
         loop {
             match inner_rx.recv().await {
@@ -69,7 +51,6 @@ pub async fn listen(
                     let f = std::fs::File::open(&watcher.path).unwrap();
                     let reader = BufReader::new(f);
 
-                    // TODO: this needs to be the size of the window
                     let mut iter = reader.lines();
                     while let Some(Ok(line)) = iter.next() {
                         watcher.history.push(line);
@@ -82,6 +63,23 @@ pub async fn listen(
             }
         }
     });
+
+    // trigger a read on startup
+    inner_tx.send(()).unwrap();
+
+    // start watching
+    let mut watcher = recommended_watcher(move |res| match res {
+        // only notify for Modify events
+        Ok(Event {
+            kind: EventKind::Modify(..),
+            ..
+        }) => inner_tx.send(()).unwrap(),
+        Ok(_) => {}
+
+        Err(e) => println!("error: {:?}", e),
+    })?;
+    let path = obj.lock().await.path.clone();
+    watcher.watch(Path::new(&path), notify::RecursiveMode::NonRecursive)?;
 
     Ok(watcher)
 }

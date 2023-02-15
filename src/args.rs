@@ -2,10 +2,8 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct Args {
-    #[arg(long)]
-    pub file1: String,
-    #[arg(long)]
-    pub file2: String,
+    #[arg(short, long)]
+    pub files: Vec<String>,
 }
 
 pub fn parse() -> Args {

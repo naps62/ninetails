@@ -1,4 +1,4 @@
-use crate::{app::App, args::Args, file_watcher::FileWatcher};
+use crate::{app::App, file_watcher::FileWatcher};
 use std::io;
 
 use crossterm::{
@@ -18,9 +18,7 @@ use tui::{
 };
 
 pub async fn run(mut app: App) -> anyhow::Result<()> {
-    //
     // setup
-    //
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -29,9 +27,7 @@ pub async fn run(mut app: App) -> anyhow::Result<()> {
 
     run_app(&mut terminal, &mut app).await?;
 
-    //
     // teardown
-    //
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
@@ -47,20 +43,22 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> anyho
     let mut term_events = EventStream::new();
 
     'mainloop: loop {
+        // render
         {
             let f1 = app.watchers[0].lock().await;
             let f2 = app.watchers[1].lock().await;
+
             terminal.draw(|f| ui(f, &f1, &f2))?;
         }
 
+        // wait for events
         select! {
             () = app.wait() =>{
-                /* update was triggered. looping */
+                /* update was triggered by one of the files. looping */
             }
             maybe_event = term_events.next() => {
                 match maybe_event {
                     Some(Ok(event))=>{
-
                         // q pressed, quit
                         if event== Event::Key(KeyCode::Char('q').into()){
                             break 'mainloop;

@@ -21,15 +21,12 @@ impl App {
 
         let (tx, rx) = tokio::sync::mpsc::channel::<()>(100);
 
-        let watcher = FileWatcher::new(&args.file1)?;
-        let handle = file_watcher::listen(&watcher, tx.clone()).await?;
-        watch_handles.push(handle);
-        watchers.push(watcher);
-
-        let watcher2 = FileWatcher::new(&args.file2)?;
-        let handle = file_watcher::listen(&watcher2, tx.clone()).await?;
-        watch_handles.push(handle);
-        watchers.push(watcher2);
+        for file in args.files {
+            let watcher = FileWatcher::new(&file)?;
+            let handle = file_watcher::listen(&watcher, tx.clone()).await?;
+            watch_handles.push(handle);
+            watchers.push(watcher);
+        }
 
         Ok(Self {
             watch_handles,
