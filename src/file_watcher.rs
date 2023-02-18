@@ -1,5 +1,5 @@
 use std::{
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
     path::Path,
     sync::Arc,
 };
@@ -16,6 +16,7 @@ use crate::circular::CircularBuffer;
 pub struct FileWatcher {
     path: String,
     pub history: CircularBuffer<String>,
+    pub pos: u64,
 }
 
 impl FileWatcher {
@@ -23,6 +24,7 @@ impl FileWatcher {
         Ok(Arc::new(Mutex::new(Self {
             path: file.into(),
             history: CircularBuffer::new(10000),
+            pos: 0,
         })))
     }
 
@@ -40,20 +42,29 @@ pub async fn listen(
     // channel for internal comms between the new thread and the file watcher
     let (inner_tx, mut inner_rx) = mpsc::unbounded_channel();
 
-    let copy = obj.clone();
     // setup a task to listen to file changes and read new lines
+    let copy = obj.clone();
     tokio::task::spawn(async move {
+        let mut pos = 0;
+        let mut new_contents = String::new();
         loop {
             match inner_rx.recv().await {
                 // file was modified
                 Some(_) => {
                     let mut watcher = copy.lock().await;
-                    let f = std::fs::File::open(&watcher.path).unwrap();
-                    let reader = BufReader::new(f);
+                    let mut f = std::fs::File::open(&watcher.path).unwrap();
+                    let new_len = f.metadata().unwrap().len();
 
-                    let mut iter = reader.lines();
-                    while let Some(Ok(line)) = iter.next() {
-                        watcher.history.push(line);
+                    // dbg!(new_len);
+                    // read new contents
+                    f.seek(SeekFrom::Start(pos)).unwrap();
+                    new_contents.clear();
+                    f.read_to_string(&mut new_contents).unwrap();
+                    pos = new_len;
+
+                    // push each new line to history
+                    for line in new_contents.lines() {
+                        watcher.history.push(line.into());
                     }
 
                     // ping the outer channel to trigger a re-render
