@@ -1,8 +1,9 @@
 mod app;
 mod args;
 mod circular;
-mod file_watcher;
+// mod file_watcher;
 mod ui;
+mod watchers;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

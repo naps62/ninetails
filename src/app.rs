@@ -5,7 +5,7 @@ use tokio::sync::{mpsc::Receiver, Mutex};
 
 use crate::{
     args::Args,
-    file_watcher::{self, FileWatcher},
+    watchers::{self, file::FileWatcher},
 };
 
 pub struct App {
@@ -24,7 +24,7 @@ impl App {
 
         for file in args.files {
             let watcher = FileWatcher::new(&file)?;
-            let handle = file_watcher::listen(&watcher, tx.clone()).await?;
+            let handle = watchers::file::listen(&watcher, tx.clone()).await?;
             watch_handles.push(handle);
             watchers.push(watcher);
         }

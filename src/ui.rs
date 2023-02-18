@@ -1,4 +1,4 @@
-use crate::{app::App, file_watcher::FileWatcher};
+use crate::{app::App, watchers::file::FileWatcher};
 use std::io;
 
 use crossterm::{
