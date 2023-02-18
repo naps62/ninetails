@@ -144,7 +144,7 @@ fn draw_single<B: Backend>(
 ) {
     let text: Vec<_> = tail
         .iter_tail(area.height as usize - 2)
-        .map(|l| Spans::from(vec![Span::raw(l)]))
+        .map(|l| l.clone())
         .collect();
 
     let block = Paragraph::new(text)

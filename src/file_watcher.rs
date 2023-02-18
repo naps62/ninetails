@@ -1,5 +1,6 @@
+use ansi_to_tui::IntoText;
 use std::{
-    io::{BufRead, BufReader, Read, Seek, SeekFrom},
+    io::{Read, Seek, SeekFrom},
     path::Path,
     sync::Arc,
 };
@@ -15,7 +16,7 @@ use crate::circular::CircularBuffer;
 
 pub struct FileWatcher {
     path: String,
-    pub history: CircularBuffer<String>,
+    pub history: CircularBuffer<tui::text::Spans<'static>>,
 }
 
 impl FileWatcher {
@@ -26,7 +27,7 @@ impl FileWatcher {
         })))
     }
 
-    pub fn iter_tail<'a>(&'a self, n: usize) -> impl Iterator<Item = &String> {
+    pub fn iter_tail<'b>(&'b self, n: usize) -> impl Iterator<Item = &tui::text::Spans<'b>> {
         self.history
             .iter()
             .skip(self.history.len().saturating_sub(n))
@@ -44,7 +45,7 @@ pub async fn listen(
     let copy = obj.clone();
     tokio::task::spawn(async move {
         let mut pos = 0;
-        let mut new_contents = String::new();
+        let mut new_contents = vec![];
         loop {
             match inner_rx.recv().await {
                 // file was modified
@@ -57,12 +58,15 @@ pub async fn listen(
                     // read new contents
                     f.seek(SeekFrom::Start(pos)).unwrap();
                     new_contents.clear();
-                    f.read_to_string(&mut new_contents).unwrap();
+                    f.read_to_end(&mut new_contents).unwrap();
+                    // f.read_to_string(&mut new_contents).unwrap();
                     pos = new_len;
+                    // dbg!(pos);
+                    // dbg!(new_contents.len());
 
                     // push each new line to history
-                    for line in new_contents.lines() {
-                        watcher.history.push(line.into());
+                    for line in new_contents.into_text().unwrap().lines.iter() {
+                        watcher.history.push(line.clone());
                     }
 
                     // ping the outer channel to trigger a re-render
