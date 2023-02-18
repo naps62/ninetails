@@ -16,7 +16,6 @@ use crate::circular::CircularBuffer;
 pub struct FileWatcher {
     path: String,
     pub history: CircularBuffer<String>,
-    pub pos: u64,
 }
 
 impl FileWatcher {
@@ -24,7 +23,6 @@ impl FileWatcher {
         Ok(Arc::new(Mutex::new(Self {
             path: file.into(),
             history: CircularBuffer::new(10000),
-            pos: 0,
         })))
     }
 
