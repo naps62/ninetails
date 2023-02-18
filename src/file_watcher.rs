@@ -54,15 +54,12 @@ pub async fn listen(
                     let mut f = std::fs::File::open(&watcher.path).unwrap();
                     let new_len = f.metadata().unwrap().len();
 
-                    // dbg!(new_len);
                     // read new contents
                     f.seek(SeekFrom::Start(pos)).unwrap();
                     new_contents.clear();
                     f.read_to_end(&mut new_contents).unwrap();
                     // f.read_to_string(&mut new_contents).unwrap();
                     pos = new_len;
-                    // dbg!(pos);
-                    // dbg!(new_contents.len());
 
                     // push each new line to history
                     for line in new_contents.into_text().unwrap().lines.iter() {
